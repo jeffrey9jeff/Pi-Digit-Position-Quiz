@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pi Digit Range Quiz</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<style>
+  :root{
+    --bg:#f7f7fb; --card:#ffffff; --ink:#111; --muted:#666;
+    --accent:#2b7de9; --ok:#1a8917; --bad:#c62828; --border:#e7e7ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:800px; margin:32px auto; padding:0 16px}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  h1{font-size:22px; margin:0 0 12px}
+  .row{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+  label{font-size:14px; color:var(--muted)}
+  input[type=number], input[type=text]{font:inherit; padding:10px 12px; border:1px solid var(--border); border-radius:10px; min-width:90px}
+  input[type=text]{text-align:center; width:120px}
+  button{font:inherit; padding:10px 14px; border:1px solid var(--border); border-radius:12px; background:#fff; cursor:pointer}
+  button.primary{background:var(--accent); color:#fff; border-color:transparent}
+  button:disabled{opacity:.6; cursor:not-allowed}
+  .muted{color:var(--muted)}
+  .stats{display:flex; gap:16px; flex-wrap:wrap; font-size:14px; margin:8px 0 0}
+  .bigQ{font-size:24px; margin:14px 0}
+  .feedback{min-height:28px; font-weight:600}
+  .ok{color:var(--ok)}
+  .bad{color:var(--bad)}
+  .sec{margin-top:14px; padding:12px; background:#fafafe; border:1px dashed var(--border); border-radius:12px}
+  .leaderboard{margin-top:16px; padding:12px; border:1px solid var(--border); border-radius:12px; background:#f0f0f5}
+  .leaderboard h2{margin:0 0 8px; font-size:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>π Digit Range Quiz <span style="font-size:20px;">π</span></h1>
+
+    <div class="row" style="gap:14px; margin-bottom:10px">
+      <label>Load π:
+        <input id="file" type="file" accept=".txt">
+      </label>
+      <button id="demo">Use demo ~1000 digits</button>
+      <span class="muted">Position 1 = the “3” at the start of π (decimal point ignored).</span>
+    </div>
+
+    <div class="row" style="gap:14px; margin:10px 0">
+      <label>Start:
+        <input id="startPos" type="number" min="1" value="1">
+      </label>
+      <label>End:
+        <input id="endPos" type="number" min="1" value="350">
+      </label>
+      <button id="start" class="primary">Start Quiz</button>
+      <span class="muted">Loaded digits: <span id="loadedCount">0</span></span>
+    </div>
+
+    <div id="quizArea" class="sec" style="display:none">
+      <div class="bigQ">What is the digit at position <strong id="askN">—</strong>?</div>
+      <div class="row">
+        <input id="answer" type="text" maxlength="1" placeholder="0–9" inputmode="numeric" autocomplete="off">
+        <button id="check" class="primary">Check</button>
+        <button id="next">Next</button>
+        <button id="skip">Skip</button>
+      </div>
+      <div id="feedback" class="feedback muted"></div>
+
+      <div class="stats">
+        <div><strong>Score:</strong> <span id="score">0</span></div>
+        <div><strong>Attempts:</strong> <span id="attempts">0</span></div>
+        <div><strong>Accuracy:</strong> <span id="accuracy">0%</span></div>
+        <div><strong>1st Guess:</strong> <span id="accuracy1">0%</span></div>
+        <div><strong>2nd Guess:</strong> <span id="accuracy2">0%</span></div>
+        <div><strong>Streak:</strong> <span id="streak">0</span></div>
+        <div class="muted">Range: <span id="rangeLbl">—</span></div>
+        <div class="muted">Avg Time/Guess: <span id="avgTime">0s</span>, Median: <span id="medianTime">0s</span></div>
+      </div>
+
+      <div class="leaderboard">
+        <h2>Leaderboard</h2>
+        <ol id="leaderboardList"></ol>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  // ---------- Elements ----------
+  const elFile = document.getElementById('file');
+  const elDemo = document.getElementById('demo');
+  const elLoadedCount = document.getElementById('loadedCount');
+
+  const elStartPos = document.getElementById('startPos');
+  const elEndPos = document.getElementById('endPos');
+  const elStart = document.getElementById('start');
+
+  const elQuiz = document.getElementById('quizArea');
+  const elAskN = document.getElementById('askN');
+  const elAnswer = document.getElementById('answer');
+  const elCheck = document.getElementById('check');
+  const elNext = document.getElementById('next');
+  const elSkip = document.getElementById('skip');
+  const elFeedback = document.getElementById('feedback');
+
+  const elScore = document.getElementById('score');
+  const elAttempts = document.getElementById('attempts');
+  const elAccuracy = document.getElementById('accuracy');
+  const elAccuracy1 = document.getElementById('accuracy1');
+  const elAccuracy2 = document.getElementById('accuracy2');
+  const elStreak = document.getElementById('streak');
+  const elRangeLbl = document.getElementById('rangeLbl');
+  const elLeaderboard = document.getElementById('leaderboardList');
+  const elAvgTime = document.getElementById('avgTime');
+  const elMedianTime = document.getElementById('medianTime');
+
+  // ---------- Data ----------
+  let piDigitsOnly = "";
+  let currentN = null;
+  let range = {start:1, end:350};
+  let score = 0, attempts = 0, streak = 0;
+  let firstGuessCorrect = 0, secondGuessCorrect = 0, guessCount = 0;
+  let times = [];
+  let startTime = null;
+  let currentAttempt = 0;
+
+  // ---------- Storage ----------
+  const STORAGE_KEY = "piQuizGame";
+
+  function saveGame() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      piDigitsOnly, range, score, attempts, streak,
+      firstGuessCorrect, secondGuessCorrect, guessCount, times, currentN
+    }));
+  }
+
+  function loadGame() {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (data) {
+      const obj = JSON.parse(data);
+      piDigitsOnly = obj.piDigitsOnly || "";
+      range = obj.range || {start:1,end:350};
+      score = obj.score || 0;
+      attempts = obj.attempts || 0;
+      streak = obj.streak || 0;
+      firstGuessCorrect = obj.firstGuessCorrect || 0;
+      secondGuessCorrect = obj.secondGuessCorrect || 0;
+      guessCount = obj.guessCount || 0;
+      times = obj.times || [];
+      currentN = obj.currentN || null;
+      refreshLoadedCount();
+      if (currentN) ask(true);
+      updateStats();
+    }
+  }
+
+  // ---------- Demo π ----------
+  function setDemo() {
+    const demo =
+      "3" +
+      "14159265358979323846264338327950288419716939937510" +
+      "58209749445923078164062862089986280348253421170679" +
+      "82148086513282306647093844609550582231725359408128" +
+      "48111745028410270193852110555964462294895493038196" +
+      "44288109756659334461284756482337867831652712019091" +
+      "45648566923460348610454326648213393607260249141273" +
+      "72458700660631558817488152092096282925409171536436" +
+      "78925903600113305305488204665213841469519415116094" +
+      "33057270365759591953092186117381932611793105118548" +
+      "07446237996274956735188575272489122793818301194912";
+    piDigitsOnly = demo;
+    refreshLoadedCount();
+  }
+
+  function refreshLoadedCount(){
+    elLoadedCount.textContent = piDigitsOnly.length.toLocaleString();
+    const max = Math.max(1, piDigitsOnly.length);
+    elStartPos.max = max;
+    elEndPos.max = max;
+    if (+elEndPos.value > max) elEndPos.value = max;
+  }
+
+  async function handleFile(file){
+    const txt = await file.text();
+    const clean = txt.replace(/\s+/g,"");
+    if (!/^3\./.test(clean)) {
+      alert("File must start with '3.'");
+      return;
+    }
+    piDigitsOnly = "3" + clean.slice(2);
+    refreshLoadedCount();
+    saveGame();
+  }
+
+  // Auto-load pi_15000.txt if exists in repo
+  async function loadPiFile() {
+    try {
+      const resp = await fetch('pi_15000.txt');
+      if (resp.ok) {
+        const txt = await resp.text();
+        const clean = txt.replace(/\s+/g,"");
+        piDigitsOnly = "3" + clean.slice(2);
+        refreshLoadedCount();
+      }
+    } catch(e){ console.warn("pi_15000.txt not loaded"); }
+  }
+
+  function pickRandomN() {
+    const {start,end} = range;
+    const a = Math.max(1, Math.min(start, end));
+    const b = Math.min(piDigitsOnly.length, Math.max(start, end));
+    return Math.floor(Math.random()*(b - a + 1)) + a;
+  }
+
+  // ---------- Question ----------
+  function ask(resume=false) {
+    if (!piDigitsOnly) { alert("Load π first (file or demo)."); return; }
+    range.start = Math.max(1, +elStartPos.value || 1);
+    range.end   = Math.min(piDigitsOnly.length, +elEndPos.value || 1);
+    if (range.start > range.end) [range.start, range.end] = [range.end, range.start];
+
+    elRangeLbl.textContent = `${range.start}–${range.end}`;
+    currentAttempt = 0;
+    startTime = Date.now();
+
+    if (!resume) currentN = pickRandomN();
+    elAskN.textContent = currentN;
+    elFeedback.textContent = " ";
+    elFeedback.className = "feedback";
+    elAnswer.value = "";
+    elAnswer.focus();
+  }
+
+  function updateStats(){
+    elScore.textContent = score;
+    elAttempts.textContent = attempts;
+    const acc = attempts ? Math.round((score/attempts)*100) : 0;
+    elAccuracy.textContent = `${acc}%`;
+
+    const acc1 = guessCount ? Math.round((firstGuessCorrect/guessCount)*100) : 0;
+    const acc2 = guessCount ? Math.round((secondGuessCorrect/guessCount)*100) : 0;
+    elAccuracy1.textContent = `${acc1}%`;
+    elAccuracy2.textContent = `${acc2}%`;
+
+    elStreak.textContent = streak;
+
+    if(times.length){
+      const avg = (times.reduce((a,b)=>a+b,0)/times.length).toFixed(2);
+      const sorted = [...times].sort((a,b)=>a-b);
+      const mid = Math.floor(sorted.length/2);
+      const median = (sorted.length%2===0) ? ((sorted[mid-1]+sorted[mid])/2).toFixed(2) : sorted[mid].toFixed(2);
+      elAvgTime.textContent = avg + "s";
+      elMedianTime.textContent = median + "s";
+    }
+  }
+
+  function updateLeaderboard(){
+    let lb = JSON.parse(localStorage.getItem("piQuizLeaderboard")||"[]");
+    lb.push({score, date: new Date().toLocaleString()});
+    lb.sort((a,b)=>b.score - a.score);
+    lb = lb.slice(0,10);
+    localStorage.setItem("piQuizLeaderboard", JSON.stringify(lb));
+    elLeaderboard.innerHTML = lb.map(x=>`<li>${x.score} (${x.date})</li>`).join("");
+  }
+
+  function check() {
+    const val = elAnswer.value.trim();
+    if (!/^\d$/.test(val)) { elFeedback.textContent = "Enter a single digit (0–9)."; return; }
+
+    const correctDigit = piDigitsOnly[currentN - 1];
+    attempts++;
+    currentAttempt++;
+
+    if(currentAttempt===1) guessCount++;
+
+    if (val === correctDigit) {
+      streak++; 
+      score++;
+      if(currentAttempt===1) firstGuessCorrect++;
+      if(currentAttempt===2) secondGuessCorrect++;
+
+      elFeedback.textContent = currentAttempt===1 ? "Correct! (1st try bonus)" : "Correct!";
+      elFeedback.className = "feedback ok";
+      
+      // reward free point for pressing enter after correct
+      if(currentAttempt===1 && val === correctDigit){
+        score++;
+        elFeedback.textContent += " +1 bonus!";
+      }
+
+      times.push(((Date.now()-startTime)/1000).toFixed(2));
+      updateStats();
+      saveGame();
+    } else {
+      streak = 0;
+      if(currentAttempt===1) elFeedback.textContent = "Wrong, try again!";
+      else { 
+        elFeedback.textContent = `Wrong again. Correct: ${correctDigit}`; 
+        elFeedback.className = "feedback bad"; 
+        times.push(((Date.now()-startTime)/1000).toFixed(2));
+      }
+      updateStats();
+      saveGame();
+    }
+  }
+
+  function nextQ(){
+    ask();
+    saveGame();
+  }
+
+  function skip(){
+    currentN = pickRandomN();
+    ask(true);
+  }
+
+  // ---------- Event Listeners ----------
+  elFile.addEventListener('change', e=>handleFile(e.target.files[0]));
+  elDemo.addEventListener('click', setDemo);
+  elStart.addEventListener('click', ()=>{
+    elQuiz.style.display = "block";
+    ask();
+  });
+  elCheck.addEventListener('click', check);
+  elAnswer.addEventListener('keydown', e=>{
+    if(e.key==="Enter") check();
+  });
+  elNext.addEventListener('click', nextQ);
+  elSkip.addEventListener('click', skip);
+
+  // Auto-load
+  loadPiFile();
+  loadGame();
+  updateLeaderboard();
+})();
+</script>
+</body>
+</html>
